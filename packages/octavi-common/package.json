@@ -1,0 +1,34 @@
+{
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "name": "octavi-common",
+  "version": "0.5.0",
+  "description": "Common types and utilities for the Octavi application",
+  "repository": "github.com/chairemobilite/octavi",
+  "license": "MIT",
+  "scripts": {
+    "clean": "rimraf lib/",
+    "compile": "tsc",
+    "compile:dev": "tsc -w",
+    "test": "echo 'cross-env NODE_ENV=test jest --config=jest.config.js'",
+    "test:unit": "cross-env NODE_ENV=test jest --config=jest.config.js",
+    "test:sequential": "echo 'no tests to run for this workspace'",
+    "test:ui": "echo 'no tests to run for this workspace'",
+    "lint": "eslint .",
+    "format": "prettier-eslint \"./src/**/*.{ts,tsx}\" --write"
+  },
+  "dependencies": {
+    "chaire-lib-common": "^0.2.2"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.50.0",
+    "@typescript-eslint/parser": "^8.50.0",
+    "cross-env": "^10.1.0",
+    "eslint": "^8.57.1",
+    "eslint-plugin-n": "^15.7.0",
+    "prettier-eslint-cli": "^8.0.1",
+    "ts-jest": "^29.4.6",
+    "typescript": "^5.9.3"
+  }
+}
