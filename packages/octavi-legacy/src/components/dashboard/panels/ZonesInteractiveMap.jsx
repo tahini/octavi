@@ -1,11 +1,12 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import PropTypes from 'prop-types';
-import MapLibreMap, { Layer, Source } from 'react-map-gl/maplibre';
 
 import Preferences from 'chaire-lib-common/lib/config/Preferences';
 import serviceLocator from 'chaire-lib-common/lib/utils/ServiceLocator';
 import ConfirmModal from 'chaire-lib-frontend/lib/components/modal/ConfirmModal';
+import OctaviMap from '../../map/OctaviMap';
+import ZoneMapLayers from '../../map/ZoneMapLayers';
 
 const EMPTY_FEATURE_COLLECTION = {
     type: 'FeatureCollection',
@@ -57,34 +58,6 @@ const getContrastingTextColor = (backgroundColor) => {
     return luminance > 0.179 ? '#000000' : '#ffffff';
 };
 
-/**
- * Generate map style with tile sources
- * FIXME Adapted from Transition MainMap, without the aerial options. We should use similar functionalities as in Transition to avoid duplicating this part and allow all the richness of the interaction from there.
- */
-const getMapStyle = () => {
-    const sources = {
-        osm: {
-            type: 'raster',
-            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-            tileSize: 256,
-            attribution: '© OpenStreetMap contributors'
-        }
-    };
-
-    const layers = [];
-    layers.push({
-        id: 'osm',
-        type: 'raster',
-        source: 'osm'
-    });
-
-    return {
-        version: 8, // must be 8, see https://maplibre.org/maplibre-style-spec/root/#version
-        sources,
-        layers
-    };
-};
-
 const ZonesInteractiveMap = ({
     zoneDataSource = EMPTY_FEATURE_COLLECTION,
     style = {},
@@ -100,29 +73,11 @@ const ZonesInteractiveMap = ({
     });
     const [zoneType, setZoneType] = useState(initialZoneType || 'origin');
     const [clearConfirmationIsOpen, setClearConfirmationIsOpen] = useState(false);
-    const zoneDataSourceWithPropertyIds = useMemo(
-        () => ({
-            ...zoneDataSource,
-            features: zoneDataSource.features.map((feature) => {
-                const id = feature.properties?.id ?? feature.id;
-                return {
-                    ...feature,
-                    properties: {
-                        ...feature.properties,
-                        ...(id !== undefined && id !== null ? { id } : {})
-                    }
-                };
-            })
-        }),
-        [zoneDataSource]
-    );
     const viewStateRef = useRef({
         longitude: Preferences.get('map.center')[0],
         latitude: Preferences.get('map.center')[1],
         zoom: Preferences.get('map.zoom')
     });
-
-    const mapStyle = useMemo(getMapStyle, []);
 
     useEffect(() => {
         setSelection({
@@ -213,7 +168,6 @@ const ZonesInteractiveMap = ({
         };
     };
 
-    const selectedFilter = (ids) => ['in', ['get', 'id'], ['literal', ids]];
     const mapContainerStyle = {
         ...style,
         width: '100%',
@@ -255,10 +209,9 @@ const ZonesInteractiveMap = ({
                 </div>
             </div>
 
-            <MapLibreMap
+            <OctaviMap
                 initialViewState={viewStateRef.current}
                 style={{ width: '100%', height: '100%' }}
-                mapStyle={mapStyle}
                 interactiveLayerIds={['zones-fill']}
                 onClick={onMapClick}
                 onMove={(event) => {
@@ -266,31 +219,15 @@ const ZonesInteractiveMap = ({
                 }}
                 dragRotate={false}
             >
-                <Source id="zones" type="geojson" data={zoneDataSourceWithPropertyIds} promoteId="id">
-                    <Layer
-                        id="zones-fill"
-                        type="fill"
-                        paint={{ 'fill-color': 'rgba(255,255,255,0.2)' }}
-                    />
-                    <Layer
-                        id="origin-selection"
-                        type="fill"
-                        filter={selectedFilter(selection.origin)}
-                        paint={{ 'fill-color': getZoneColor('origin'), 'fill-opacity': 0.7 }}
-                    />
-                    <Layer
-                        id="destination-selection"
-                        type="fill"
-                        filter={selectedFilter(selection.destination)}
-                        paint={{ 'fill-color': getZoneColor('destination'), 'fill-opacity': 0.7 }}
-                    />
-                    <Layer
-                        id="zones-outline"
-                        type="line"
-                        paint={{ 'line-color': '#000000', 'line-opacity': 0.75 }}
-                    />
-                </Source>
-            </MapLibreMap>
+                <ZoneMapLayers
+                    data={zoneDataSource}
+                    fillColor="rgba(255,255,255,0.2)"
+                    selections={[
+                        { id: 'origin', ids: selection.origin, color: getZoneColor('origin') },
+                        { id: 'destination', ids: selection.destination, color: getZoneColor('destination') }
+                    ]}
+                />
+            </OctaviMap>
             <ConfirmModal
                 isOpen={clearConfirmationIsOpen}
                 title={t('octavi:filters:spatial:initializeSelection')}

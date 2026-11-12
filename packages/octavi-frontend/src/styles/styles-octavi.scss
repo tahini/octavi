@@ -137,7 +137,7 @@
 .box {
   display: flex !important;
   border: 1px;
-  border-style: solid;
+  border-stylen: solid;
   border-color: rgba(255, 255, 255, 0.2);
   width: 100%;
   height: auto;
@@ -181,7 +181,7 @@
     border-radius: 0.2rem;
     line-height: 1.1;
     min-height: 3rem;
-    background: rgba(255, 255, 255, 0.1);
+    backgrounnd: rgba(255, 255, 255, 0.1);
     font-size: $font-size-medium;
     color: rgba(255,255,255,1.0) !important;
 }
@@ -200,6 +200,10 @@
     border-radius: 3px;
     width: 13em;
     font-size: $font-size-xxsmall;
+}
+
+.maplibregl-popup-close-button {
+    display: block;
 }
 
 
