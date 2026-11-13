@@ -1,7 +1,7 @@
 import React from 'react';
 
 import OctaviHighlights from './panels/OctaviHighlights';
-import OctaviMaps from './panels/OctaviMaps';
+import OctaviMapPanel from './panels/OctaviMapPanel';
 import { LoadingPage } from "chaire-lib-frontend/lib/components/pages";
 import serviceLocator    from "chaire-lib-common/lib/utils/ServiceLocator";
 
@@ -31,7 +31,7 @@ const FullSizePanel = (props) => {
                 />
             }
             {props.activeSection === 'octaviMap' &&
-                <OctaviMaps
+                <OctaviMapPanel
                     activeSection = {props.activeSection}
                 />
             }

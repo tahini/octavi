@@ -3,10 +3,12 @@ import { useTranslation } from 'react-i18next';
 import PropTypes from 'prop-types';
 
 import Preferences from 'chaire-lib-common/lib/config/Preferences';
+import { hexToRgbArray } from 'chaire-lib-common/lib/utils/ColorUtils';
 import serviceLocator from 'chaire-lib-common/lib/utils/ServiceLocator';
 import ConfirmModal from 'chaire-lib-frontend/lib/components/modal/ConfirmModal';
 import OctaviMap from '../../map/OctaviMap';
-import ZoneMapLayers from '../../map/ZoneMapLayers';
+import ZoneMapSource from '../../map/ZoneMapSource';
+import { ZoneFillLayer, ZoneOutlineLayer, ZoneSelectionLayer } from '../../map/ZoneLayers';
 
 const EMPTY_FEATURE_COLLECTION = {
     type: 'FeatureCollection',
@@ -23,27 +25,10 @@ const DEFAULT_COLORS = {
     }
 };
 
-const parseRgbColor = (color) => {
-    if (typeof color !== 'string') {
-        return null;
-    }
-
-    const hexMatch = color.match(/^#([\da-f]{3}|[\da-f]{6})$/i);
-    if (hexMatch) {
-        const hex = hexMatch[1].length === 3
-            ? hexMatch[1].split('').map((value) => value + value).join('')
-            : hexMatch[1];
-        return [0, 2, 4].map((index) => parseInt(hex.slice(index, index + 2), 16));
-    }
-
-    const rgbMatch = color.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
-    return rgbMatch ? rgbMatch.slice(1, 4).map(Number) : null;
-};
-
 // Get a contrasting color from the background color
 // FIXME should this be moved somewhere else for others to use?
 const getContrastingTextColor = (backgroundColor) => {
-    const rgb = parseRgbColor(backgroundColor);
+    const rgb = hexToRgbArray(backgroundColor);
     if (!rgb) {
         return '#000000';
     }
@@ -219,14 +204,22 @@ const ZonesInteractiveMap = ({
                 }}
                 dragRotate={false}
             >
-                <ZoneMapLayers
-                    data={zoneDataSource}
-                    fillColor="rgba(255,255,255,0.2)"
-                    selections={[
-                        { id: 'origin', ids: selection.origin, color: getZoneColor('origin') },
-                        { id: 'destination', ids: selection.destination, color: getZoneColor('destination') }
-                    ]}
-                />
+                <ZoneMapSource id="zones" data={zoneDataSource}>
+                    <ZoneFillLayer id="zones-fill" sourceId="zones" fillOpacity={0.2} />
+                    <ZoneSelectionLayer
+                        id="origin-selection"
+                        sourceId="zones"
+                        selectedIds={selection.origin}
+                        fillColor={getZoneColor('origin')}
+                    />
+                    <ZoneSelectionLayer
+                        id="destination-selection"
+                        sourceId="zones"
+                        selectedIds={selection.destination}
+                        fillColor={getZoneColor('destination')}
+                    />
+                    <ZoneOutlineLayer id="zones-outline" sourceId="zones" lineColor="#000000" lineOpacity={0.75} />
+                </ZoneMapSource>
             </OctaviMap>
             <ConfirmModal
                 isOpen={clearConfirmationIsOpen}

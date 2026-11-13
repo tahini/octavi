@@ -3,10 +3,10 @@ import React       from 'react';
 import { LoadingPage } from "chaire-lib-frontend/lib/components/pages";
 import { _isBlank }                       from 'chaire-lib-common/lib/utils/LodashExtensions';
 import serviceLocator                     from 'chaire-lib-common/lib/utils/ServiceLocator';
-import OriginDestinationSRSM              from '../widgets/OriginDestinationSR_SMmap.mapWidget';
+import OriginDestinationSRSM              from '../../map/OriginDestinationHeatMap';
 import octaviParameters from '../../../services/ui/OctaviParameters';
 
-export default class OctaviMaps extends React.Component {
+export default class OctaviMapsPanel extends React.Component {
 
   constructor(props) {
 
@@ -98,9 +98,6 @@ addFeaturesDataProp (propName, features) {
     if (this.state.mapOptions.selectedMapStyle && this.state.mapOptions.selectedMapStyle == "SRMap" || this.state.mapOptions.selectedMapStyle == "SMMap") {
         return (
             <OriginDestinationSRSM
-                key                 = 'taxiOriginMapWidgetSMSR'
-                t                   = {this.props.t}
-                i18n                = {this.props.i18n}
                 zone_data           = {this.state.zone_data}
                 isEnabled           = {this.state.isEnabled}
             />
