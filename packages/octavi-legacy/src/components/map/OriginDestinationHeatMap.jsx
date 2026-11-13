@@ -1,108 +1,119 @@
-import React, { PropsWithChildren, useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
+import { useMap } from 'react-map-gl/maplibre';
 
+import MapLegend from './MapLegend';
+import OctaviMap, { Popup } from './OctaviMap';
+import ZoneMapSource from './ZoneMapSource';
 import Preferences from 'chaire-lib-common/lib/config/Preferences';
-import serviceLocator from 'chaire-lib-common/lib/utils/ServiceLocator';
-import MapLegend from 'octavi-legacy/lib/components/map/MapLegend';
-import OctaviMap, { Popup } from 'octavi-legacy/lib/components/map/OctaviMap';
-import ZoneMapSource from 'octavi-legacy/lib/components/map/ZoneMapSource';
-import {
-    ZoneFillLayer,
-    ZoneHeatmapLayer,
-    ZoneOutlineLayer,
-    ZoneSelectionLayer
-} from 'octavi-legacy/lib/components/map/ZoneLayers';
+import { ZoneFillLayer, ZoneHeatmapLayer, ZoneOutlineLayer } from './ZoneLayers';
 
 const EMPTY_FEATURE_COLLECTION = { type: 'FeatureCollection', features: [] };
-const DEFAULT_ZONE_COLOR = '#d9d9d9';
+const HEATMAP_LAYER_ID = 'origin-destination-heatmap';
+const BASE_LAYER_ID = 'origin-destination-base';
 
-const OriginDestinationHeatMap = ({ heatmap, zoneColor = DEFAULT_ZONE_COLOR }) => {
-    const mapCenter = Preferences.get('map.center');
-    const mapZoom = Preferences.get('map.zoom');
-    const [zones, setZones] = useState(EMPTY_FEATURE_COLLECTION);
+const OriginDestinationHeatMap = ({
+    data = EMPTY_FEATURE_COLLECTION,
+    property = 'value',
+    propertyPath = [],
+    stops = [],
+    legendTitle,
+    baseColor = '#d9d9d9'
+}) => {
+    const mapRef = useMap().current;
     const [selectedZone, setSelectedZone] = useState(null);
-
-    const loadZones = useCallback(() => {
-        if (serviceLocator.collectionManager.has('zones')) {
-            setZones(serviceLocator.collectionManager.get('zones').toGeojsonSimplified());
-        }
-    }, []);
+    const hasHeatmap = stops.length >= 2;
+    const viewStateRef = useRef({
+        longitude: Preferences.get('map.center')[0],
+        latitude: Preferences.get('map.center')[1],
+        zoom: Preferences.get('map.zoom')
+    });
 
     useEffect(() => {
-        serviceLocator.eventManager.on('taxi.filter.spatial.enable', loadZones);
-        loadZones();
-        return () => serviceLocator.eventManager.off('taxi.filter.spatial.enable', loadZones);
-    }, [loadZones]);
-
-    const handleMapLoad = () => {
-        serviceLocator.eventManager.emit('map.loaded');
-    };
-
-    console.log('displaying %d zones', zones.features.length)
-
-    const handleZoneClick = (event) => {
-        const feature = event.features?.[0];
-        if (!feature) {
-            setSelectedZone(null);
-            return;
+        const map = mapRef?.getMap();
+        if (!map) {
+            return undefined;
         }
 
-        const id = feature.properties?.id ?? feature.id;
-        const selectedId = selectedZone?.feature.properties?.id ?? selectedZone?.feature.id;
-        if (id !== undefined && String(id) === String(selectedId)) {
-            setSelectedZone(null);
-            return;
-        }
+        const handleZoneClick = (event) => {
+            const feature = event.features?.[0];
+            if (!feature) {
+                return;
+            }
 
-        setSelectedZone({
-            feature,
-            longitude: event.lngLat.lng,
-            latitude: event.lngLat.lat
-        });
-    };
+            const id = feature.properties?.id ?? feature.id;
+            setSelectedZone((current) => {
+                const currentId = current?.feature.properties?.id ?? current?.feature.id;
+                return id !== undefined && String(id) === String(currentId)
+                    ? null
+                    : { feature, longitude: event.lngLat.lng, latitude: event.lngLat.lat };
+            });
+        };
+        const handleMouseEnter = () => {
+            map.getCanvas().style.cursor = 'pointer';
+        };
+        const handleMouseLeave = () => {
+            map.getCanvas().style.cursor = '';
+        };
+        const addLayerClickListener = () => {
+            const layerId = hasHeatmap ? HEATMAP_LAYER_ID : BASE_LAYER_ID;
+            if (map.getLayer(layerId)) {
+                map.on('click', layerId, handleZoneClick);
+                map.on('mouseenter', layerId, handleMouseEnter);
+                map.on('mouseleave', layerId, handleMouseLeave);
+                map.off('styledata', addLayerClickListener);
+            }
+        };
+        map.on('styledata', addLayerClickListener);
+        addLayerClickListener();
 
-    const selectedId = selectedZone?.feature.properties?.id ?? selectedZone?.feature.id;
-    const featureData = selectedZone?.feature.properties?.data;
-    const hasHeatmap = Boolean(heatmap && heatmap.stops.length >= 2);
+        return () => {
+            map.off('click', HEATMAP_LAYER_ID, handleZoneClick);
+            map.off('click', BASE_LAYER_ID, handleZoneClick);
+            map.off('mouseenter', HEATMAP_LAYER_ID, handleMouseEnter);
+            map.off('mouseenter', BASE_LAYER_ID, handleMouseEnter);
+            map.off('mouseleave', HEATMAP_LAYER_ID, handleMouseLeave);
+            map.off('mouseleave', BASE_LAYER_ID, handleMouseLeave);
+            map.off('styledata', addLayerClickListener);
+            map.getCanvas().style.cursor = '';
+        };
+    }, [mapRef, hasHeatmap]);
+
+    const feature = selectedZone?.feature;
+    const selectedId = feature?.properties?.id ?? feature?.id;
+    const popupProperties = Object.entries(feature?.properties || {}).filter(
+        ([key, value]) => key !== 'id' && key !== 'data' && value !== undefined && value !== null
+    );
 
     return (
         <OctaviMap
-            center={mapCenter}
-            zoom={mapZoom}
-            interactiveLayerIds={
-                hasHeatmap ? ['zone-heatmap-fill', 'zone-base-fill'] : ['zone-base-fill']
-            }
-            onLoad={handleMapLoad}
-            onClick={handleZoneClick}
-            onMouseMove={(event) => {
-                if (event.features?.length) {
-                    event.target.getCanvas().style.cursor = 'pointer';
-                } else {
-                    event.target.getCanvas().style.cursor = '';
-                }
+            initialViewState={viewStateRef.current}
+            style={{ width: '100%', height: '100%' }}
+            interactiveLayerIds={[BASE_LAYER_ID]}
+            onMove={(event) => {
+                viewStateRef.current = event.viewState;
             }}
+            dragRotate={false}
         >
-            <ZoneMapSource id="octavi-zones" data={zones}>
-                <ZoneFillLayer id="zone-base-fill" sourceId="octavi-zones" fillColor={zoneColor} />
-                {hasHeatmap && heatmap && (
+            <ZoneMapSource id="origin-destination-zones" data={data}>
+                <ZoneFillLayer
+                    id={BASE_LAYER_ID}
+                    sourceId="origin-destination-zones"
+                    fillColor={baseColor}
+                    fillOpacity={hasHeatmap ? 0.15 : 0.35}
+                />
+                {hasHeatmap && (
                     <ZoneHeatmapLayer
-                        id="zone-heatmap-fill"
-                        sourceId="octavi-zones"
-                        property={heatmap.property}
-                        propertyPath={heatmap.propertyPath || []}
-                        stops={heatmap.stops}
-                    />
-                )}
-                {selectedId !== undefined && selectedId !== null && (
-                    <ZoneSelectionLayer
-                        id="zone-selection"
-                        sourceId="octavi-zones"
-                        selectedIds={[selectedId]}
-                        fillColor="#D4230E"
+                        id={HEATMAP_LAYER_ID}
+                        sourceId="origin-destination-zones"
+                        property={property}
+                        propertyPath={propertyPath}
+                        stops={stops}
                         fillOpacity={0.75}
                     />
                 )}
-                <ZoneOutlineLayer id="zone-outline" sourceId="octavi-zones" />
+                <ZoneOutlineLayer id="origin-destination-outline" sourceId="origin-destination-zones" />
             </ZoneMapSource>
+            {hasHeatmap && <MapLegend title={legendTitle} items={stops} />}
             {selectedZone && (
                 <Popup
                     longitude={selectedZone.longitude}
@@ -113,16 +124,19 @@ const OriginDestinationHeatMap = ({ heatmap, zoneColor = DEFAULT_ZONE_COLOR }) =
                     anchor="bottom"
                 >
                     <div className="octavi-map-popup">
-                        <strong>{selectedZone.feature.properties?.shortname || String(selectedId)}</strong>
-                        {featureData &&
-                            Object.entries(featureData).map(([key, value]) => (
-                                <div key={key}>
-                                    <strong>{key}: </strong>
-                                    {typeof value === 'string' || typeof value === 'number'
-                                        ? String(value)
-                                        : JSON.stringify(value)}
-                                </div>
-                            ))}
+                        <strong>
+                            {feature?.properties?.SM_name ||
+                                feature?.properties?.shortname ||
+                                String(selectedId)}
+                        </strong>
+                        {popupProperties.map(([key, value]) => (
+                            <div key={key}>
+                                <strong>{key}: </strong>
+                                {typeof value === 'string' || typeof value === 'number'
+                                    ? String(value)
+                                    : JSON.stringify(value)}
+                            </div>
+                        ))}
                     </div>
                 </Popup>
             )}

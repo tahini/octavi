@@ -33,13 +33,6 @@ const OctaviMainMap = ({ center, zoom, children }: MainMapProps) => {
                     center={mapCenter}
                     zoom={mapZoom}
                     onLoad={handleMapLoad}
-                    onMouseMove={(event) => {
-                        if (event.features?.length) {
-                            event.target.getCanvas().style.cursor = 'pointer';
-                        } else {
-                            event.target.getCanvas().style.cursor = '';
-                        }
-                    }}
                 >
                     {children}
                 </OctaviMap>
