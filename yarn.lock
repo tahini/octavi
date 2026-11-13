@@ -14297,6 +14297,7 @@ __metadata:
     lodash: "npm:^4.18.1"
     maplibre-gl: "npm:^6.14.0"
     mini-css-extract-plugin: "npm:^2.9.4"
+    moment: "npm:^2.31.0"
     octavi-common: "workspace:^"
     octavi-legacy: "workspace:^"
     prettier: "npm:^3.9.10"

@@ -29,11 +29,7 @@ const OctaviMainMap = ({ center, zoom, children }: MainMapProps) => {
         <section id="tr__main-map">
             <div id="tr__main-map-context-menu" className="tr__main-map-context-menu"></div>
             <div style={{ position: 'absolute', inset: 0 }}>
-                <OctaviMap
-                    center={mapCenter}
-                    zoom={mapZoom}
-                    onLoad={handleMapLoad}
-                >
+                <OctaviMap center={mapCenter} zoom={mapZoom} onLoad={handleMapLoad}>
                     {children}
                 </OctaviMap>
             </div>

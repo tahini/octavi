@@ -1,39 +1,99 @@
 import React from 'react';
-import { withTranslation } from 'react-i18next';
+import { withTranslation, WithTranslation } from 'react-i18next';
+import type { Status as ResponseStatus } from 'chaire-lib-common/lib/utils/Status';
 
 import * as Status from 'chaire-lib-common/lib/utils/Status';
 import { _isBlank } from 'chaire-lib-common/lib/utils/LodashExtensions';
 import { LoadingPage } from 'chaire-lib-frontend/lib/components/pages';
 import serviceLocator from 'chaire-lib-common/lib/utils/ServiceLocator';
-import OriginDestinationHeatMap from './OriginDestinationHeatMap';
-import octaviParameters from '../../services/ui/OctaviParameters';
-import { buildWidgetFilter, getDatesForPeriodAggregation, getFilterIdx } from '../../services/ui/utils';
+import octaviParameters from 'octavi-legacy/lib/services/ui/OctaviParameters';
+import { buildWidgetFilter, getDatesForPeriodAggregation, getFilterIdx } from 'octavi-legacy/lib/services/ui/utils';
 import {
     getLocalStorageKey,
     loadLocalStorageFromFilter,
     saveLocalStorageDataFromFilter
-} from '../../services/ui/localStorageManager';
+} from 'octavi-legacy/lib/services/ui/localStorageManager';
+import OriginDestinationHeatMap, {
+    HeatmapFeature,
+    HeatmapFeatureCollection,
+    HeatmapStop
+} from './OriginDestinationHeatMap';
 
 const COLOR_STOPS = ['#edf8fb', '#b2e2e2', '#66c2a4', '#2ca25f', '#006d2c'];
 const DATA_TYPE = 'totalCountGraph';
 const DEFAULT_DURATION_DIVIDER = 60;
 
-class OriginDestinationHeatMapController extends React.Component {
-    constructor(props) {
+interface MapOptions {
+    selectedMapStyle?: string;
+    selectedMapWidget?: string;
+    selectedMapObject?: string;
+    temporalOption?: string;
+    objectOption?: string;
+}
+
+interface MapFilter {
+    name: string;
+    calendarStartAt?: string | null;
+    calendarEndAt?: string | null;
+    [key: string]: unknown;
+}
+
+interface QueryScaleOptions {
+    type?: string;
+}
+
+interface QueryResponse {
+    counts?: Record<string, unknown>;
+}
+
+interface PeriodDate {
+    clone(): PeriodDate;
+    tz(timeZone: string): PeriodDate;
+    unix(): number;
+}
+
+interface ActiveQuery {
+    progressName: string;
+}
+
+interface ControllerState {
+    zones: HeatmapFeatureCollection;
+    heatmapData: HeatmapFeatureCollection;
+    stops: HeatmapStop[];
+    mapOptions: MapOptions;
+    scaleType: string;
+    isEnabled: boolean;
+    counts?: Record<string, unknown>;
+    legendTitle?: string;
+}
+
+interface WidgetOptions {
+    geographicalOption: 'bySR' | 'bySM';
+    onLocationOption: 'origin' | 'destination';
+    object: string;
+    temporalOption?: string;
+    objectOption?: string;
+}
+
+const EMPTY_FEATURE_COLLECTION: HeatmapFeatureCollection = { type: 'FeatureCollection', features: [] };
+
+class OriginDestinationHeatMapController extends React.Component<WithTranslation, ControllerState> {
+    private queryId = 0;
+    private activeQuery: ActiveQuery | null = null;
+
+    constructor(props: WithTranslation) {
         super(props);
         this.state = {
-            zones: { type: 'FeatureCollection', features: [] },
-            heatmapData: { type: 'FeatureCollection', features: [] },
+            zones: EMPTY_FEATURE_COLLECTION,
+            heatmapData: EMPTY_FEATURE_COLLECTION,
             stops: [],
-            mapOptions: octaviParameters.mapOptions,
-            scaleType: octaviParameters.get('selectedScale', 'intervalBased'),
+            mapOptions: octaviParameters.mapOptions as MapOptions,
+            scaleType: octaviParameters.get('selectedScale', 'intervalBased') as string,
             isEnabled: serviceLocator.collectionManager.has('zones')
         };
-        this.queryId = 0;
-        this.activeQuery = null;
     }
 
-    componentDidMount() {
+    componentDidMount(): void {
         serviceLocator.eventManager.on('taxi.filter.submit', this.updateHeatmapData);
         serviceLocator.eventManager.on('taxi.filter.selectedMapOptions.update', this.onMapOptionsChange);
         serviceLocator.eventManager.on('taxi.filter.selectedScale.update', this.onScaleChange);
@@ -45,7 +105,7 @@ class OriginDestinationHeatMapController extends React.Component {
         }
     }
 
-    componentWillUnmount() {
+    componentWillUnmount(): void {
         this.queryId += 1;
         this.finishActiveQuery();
         serviceLocator.eventManager.off('taxi.filter.submit', this.updateHeatmapData);
@@ -55,14 +115,16 @@ class OriginDestinationHeatMapController extends React.Component {
         serviceLocator.eventManager.off('taxi.dataSources.loaded', this.updateHeatmapData);
     }
 
-    getZones = () => {
+    private getZones = (): HeatmapFeatureCollection => {
         if (!serviceLocator.collectionManager.has('zones')) {
-            return { type: 'FeatureCollection', features: [] };
+            return EMPTY_FEATURE_COLLECTION;
         }
+
         const collection = serviceLocator.collectionManager.get('zones');
+        const features = collection.features as HeatmapFeature[];
         return {
             type: 'FeatureCollection',
-            features: collection.features.map((feature) => ({
+            features: features.map((feature) => ({
                 ...feature,
                 properties: {
                     ...feature.properties,
@@ -72,53 +134,53 @@ class OriginDestinationHeatMapController extends React.Component {
         };
     };
 
-    finishActiveQuery = () => {
+    private finishActiveQuery = (): void => {
         if (this.activeQuery) {
             serviceLocator.eventManager.emit('progress', { name: this.activeQuery.progressName, progress: 1 });
             this.activeQuery = null;
         }
     };
 
-    onZonesAvailable = () => {
+    private onZonesAvailable = (): void => {
         this.setState({ zones: this.getZones(), isEnabled: true }, this.updateHeatmapData);
     };
 
-    onMapOptionsChange = (mapOptions) => {
-        const options = mapOptions || octaviParameters.mapOptions;
-        this.setState({ mapOptions: options }, this.updateHeatmapData);
+    private onMapOptionsChange = (mapOptions?: MapOptions): void => {
+        this.setState(
+            { mapOptions: mapOptions || (octaviParameters.mapOptions as MapOptions) },
+            this.updateHeatmapData
+        );
     };
 
-    onScaleChange = (scaleOptions) => {
-        const scaleType = scaleOptions?.type || octaviParameters.get('selectedScale', 'intervalBased');
+    private onScaleChange = (scaleOptions?: QueryScaleOptions): void => {
+        const scaleType = scaleOptions?.type || (octaviParameters.get('selectedScale', 'intervalBased') as string);
         this.setState({ scaleType }, () => this.updateDisplayData(this.state.counts || {}));
     };
 
-    getWidgetOptions = () => ({
+    private getWidgetOptions = (): WidgetOptions => ({
         geographicalOption: this.state.mapOptions.selectedMapStyle === 'SRMap' ? 'bySR' : 'bySM',
         onLocationOption: this.state.mapOptions.selectedMapWidget === 'destinationMap' ? 'destination' : 'origin',
-        object: this.state.mapOptions.selectedMapObject,
+        object: this.state.mapOptions.selectedMapObject || 'activities',
         temporalOption: this.state.mapOptions.temporalOption,
         objectOption: this.state.mapOptions.objectOption
     });
 
-    getLegendTitle = () => {
-        const { t } = this.props;
+    private getLegendTitle = (): string => {
         const options = this.getWidgetOptions();
-        let title = t(`octavi:widgets.${options.object}.count`);
+        const translate = this.props.t;
+        let title = translate(`octavi:widgets.${options.object}.count`);
         if (!_isBlank(options.objectOption) && options.objectOption !== 'none') {
-            title += ` ${t(`octavi:widgetOptions:objectOption:${options.objectOption}`).toLowerCase()}`;
+            title += ` ${translate(`octavi:widgetOptions:objectOption:${options.objectOption}`).toLowerCase()}`;
         }
-        if (!_isBlank(options.geographicalOption)) {
-            title += ` ${t(`octavi:widgetOptions:geographicalOption:${options.geographicalOption}`).toLowerCase()}`;
-            title += ` (${t(`octavi:widgetOptions:onLocationOption:${options.onLocationOption}`).toLowerCase()})`;
-        }
+        title += ` ${translate(`octavi:widgetOptions:geographicalOption:${options.geographicalOption}`).toLowerCase()}`;
+        title += ` (${translate(`octavi:widgetOptions:onLocationOption:${options.onLocationOption}`).toLowerCase()})`;
         if (!_isBlank(options.temporalOption) && options.temporalOption !== 'none') {
-            title += ` ${t(`octavi:widgetOptions:temporalOption:${options.temporalOption}`).toLowerCase()}`;
+            title += ` ${translate(`octavi:widgetOptions:temporalOption:${options.temporalOption}`).toLowerCase()}`;
         }
         return title;
     };
 
-    buildStops = (values) => {
+    private buildStops = (values: number[]): HeatmapStop[] => {
         if (values.length === 0) {
             return [];
         }
@@ -130,13 +192,13 @@ class OriginDestinationHeatMapController extends React.Component {
         const breakpoints =
             this.state.scaleType === 'distributionBased' && minValue !== maxValue
                 ? Array.from({ length: COLOR_STOPS.length + 1 }, (_, index) => {
-                      const quantileIndex = Math.floor((index / COLOR_STOPS.length) * (sortedValues.length - 1));
-                      return sortedValues[quantileIndex];
-                  })
+                    const quantileIndex = Math.floor((index / COLOR_STOPS.length) * (sortedValues.length - 1));
+                    return sortedValues[quantileIndex];
+                })
                 : Array.from(
-                      { length: COLOR_STOPS.length + 1 },
-                      (_, index) => minValue + ((upperBound - minValue) * index) / COLOR_STOPS.length
-                  );
+                    { length: COLOR_STOPS.length + 1 },
+                    (_, index) => minValue + ((upperBound - minValue) * index) / COLOR_STOPS.length
+                );
 
         const stops = COLOR_STOPS.map((color, index) => ({
             value: breakpoints[index],
@@ -147,20 +209,24 @@ class OriginDestinationHeatMapController extends React.Component {
         if (stops.length < 2) {
             return [
                 { value: minValue, color: COLOR_STOPS[0], label: `${minValue.toFixed(1)} - ${upperBound.toFixed(1)}` },
-                { value: upperBound, color: COLOR_STOPS[COLOR_STOPS.length - 1], label: `${upperBound.toFixed(1)}+` }
+                {
+                    value: upperBound,
+                    color: COLOR_STOPS[COLOR_STOPS.length - 1],
+                    label: `${upperBound.toFixed(1)}+`
+                }
             ];
         }
         return stops;
     };
 
-    updateDisplayData = (counts) => {
+    private updateDisplayData = (counts: Record<string, unknown>): void => {
         const zoneProperty = this.state.mapOptions.selectedMapStyle === 'SRMap' ? 'SR' : 'SM';
         const values = Object.values(counts).map(Number).filter(Number.isFinite);
-        const heatmapData = {
+        const heatmapData: HeatmapFeatureCollection = {
             ...this.state.zones,
             features: this.state.zones.features.map((feature) => {
                 const zoneKey = feature.properties[zoneProperty];
-                const value = Number(counts[zoneKey] ?? 0);
+                const value = Number(counts[String(zoneKey)] ?? 0);
                 return {
                     ...feature,
                     properties: {
@@ -179,15 +245,15 @@ class OriginDestinationHeatMapController extends React.Component {
         });
     };
 
-    updateHeatmapData = () => {
+    private updateHeatmapData = (): void => {
         this.finishActiveQuery();
         const queryId = ++this.queryId;
         if (!this.state.isEnabled || this.state.zones.features.length === 0) {
             return;
         }
 
-        const filters = octaviParameters.filters;
-        const filterIndex = getFilterIdx(filters, 'FilterOne');
+        const filters = octaviParameters.filters as MapFilter[];
+        const filterIndex = getFilterIdx(filters, 'FilterOne') as number;
         if (filterIndex < 0) {
             console.error('Cannot update the Octavi map: FilterOne is missing.');
             return;
@@ -203,13 +269,16 @@ class OriginDestinationHeatMapController extends React.Component {
             this.updateDisplayData({});
             return;
         }
-        const dataSourceIds = octaviParameters.dataSourceIds;
+        const dataSourceIds = octaviParameters.dataSourceIds as string[];
         if (dataSourceIds.length === 0) {
             return;
         }
 
-        const filterKey = getLocalStorageKey(filters, 'FilterOne', widgetOptions);
-        const cachedCounts = loadLocalStorageFromFilter(filterKey, widgetOptions.object, DATA_TYPE);
+        const filterKey = getLocalStorageKey(filters, 'FilterOne', widgetOptions) as string;
+        const cachedCounts = loadLocalStorageFromFilter(filterKey, widgetOptions.object, DATA_TYPE) as Record<
+            string,
+            unknown
+        > | null;
         if (cachedCounts) {
             this.updateDisplayData(cachedCounts);
             return;
@@ -219,16 +288,16 @@ class OriginDestinationHeatMapController extends React.Component {
             filter.calendarStartAt,
             filter.calendarEndAt,
             widgetOptions.temporalOption
-        );
+        ) as { periodStart: PeriodDate; periodEnd: PeriodDate };
         const isContinuous = widgetOptions.object === 'distance' || widgetOptions.object === 'duration';
         const divider =
             widgetOptions.object === 'distance'
                 ? 1000
                 : widgetOptions.object === 'duration'
-                  ? DEFAULT_DURATION_DIVIDER
-                  : null;
+                    ? DEFAULT_DURATION_DIVIDER
+                    : null;
         const progressName = `OctaviLoading${widgetOptions.object[0].toUpperCase()}${widgetOptions.object.slice(1)}TotalCountGraph`;
-        this.activeQuery = { queryId, progressName };
+        this.activeQuery = { progressName };
         serviceLocator.eventManager.emit('progress', { name: progressName, progress: 0 });
 
         serviceLocator.socketEventManager.emit(
@@ -236,7 +305,7 @@ class OriginDestinationHeatMapController extends React.Component {
             {
                 object: widgetOptions.object,
                 customFilterString: ['activities', 'distance', 'duration'].includes(widgetOptions.object)
-                    ? " AND status = 'occupied' "
+                    ? ' AND status = \'occupied\' '
                     : null,
                 dataSourceIds,
                 startAt: dates.periodStart.clone().tz('utc').unix(),
@@ -249,7 +318,7 @@ class OriginDestinationHeatMapController extends React.Component {
                     divider
                 }
             },
-            (responseStatus) => {
+            (responseStatus: ResponseStatus<QueryResponse>) => {
                 if (queryId !== this.queryId) {
                     return;
                 }
@@ -260,8 +329,8 @@ class OriginDestinationHeatMapController extends React.Component {
                         this.updateDisplayData({});
                         return;
                     }
-                    const response = Status.unwrap(responseStatus);
-                    if (!response?.counts || typeof response.counts !== 'object') {
+                    const response = Status.unwrap(responseStatus) as QueryResponse;
+                    if (!response.counts || typeof response.counts !== 'object' || Array.isArray(response.counts)) {
                         console.error('The Octavi map query returned an invalid counts result:', response);
                         this.updateDisplayData({});
                         return;
@@ -275,7 +344,7 @@ class OriginDestinationHeatMapController extends React.Component {
         );
     };
 
-    render() {
+    render(): React.ReactNode {
         if (!this.state.isEnabled) {
             return <LoadingPage />;
         }
